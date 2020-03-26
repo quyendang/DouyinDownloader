@@ -5,38 +5,29 @@
  */
 package Frame;
 
+import Model.GetLink;
 import Model.VideoObject;
 import Model.WrapLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
-import java.awt.image.BufferedImage;
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
-import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.SwingConstants;
 import javax.swing.UIManager;
 import javax.swing.UnsupportedLookAndFeelException;
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 /**
  *
@@ -58,7 +49,7 @@ public class DouyinDownloaderFrame extends javax.swing.JFrame {
         }
         UIManager.put("PopupMenu.border", BorderFactory.createEmptyBorder());
         initComponents();
-        panel_Video.setLayout(new WrapLayout(WrapLayout.CENTER, 5, 5));
+        panel_video.setLayout(new WrapLayout(WrapLayout.CENTER, 5, 5));
         labelStatus = new JLabel();
         labelStatus.setForeground(Color.WHITE);
         labelStatus.setPreferredSize(new Dimension(650, 14));
@@ -68,14 +59,24 @@ public class DouyinDownloaderFrame extends javax.swing.JFrame {
     }
 
     private void getLink() {
-        listVideo = new ArrayList<>();
         String curl = txt_CurlLink.getText();
-        listVideo = getListVideo(curl);
+
+        GetLink gLink = new GetLink(curl);
+        Thread t1 = new Thread(gLink);
+        try {
+            t1.start();
+            t1.join();
+        } catch (InterruptedException ex) {
+            Logger.getLogger(DouyinDownloaderFrame.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        listVideo = gLink.getvObj();
         for (VideoObject v : listVideo) {
             VideoContent video = new VideoContent(v);
-            panel_Video.add(video);
+            panel_video.add(video);
         }
-        resetPanel(panel_Video);
+        resetPanel(panel_video);
+        System.out.println("XONG");
+
     }
 
     private void resetPanel(JPanel panel) {
@@ -100,137 +101,6 @@ public class DouyinDownloaderFrame extends javax.swing.JFrame {
         }
 
         return header;
-    }
-
-    private ArrayList<VideoObject> getListVideo(String curl) {
-
-        Map<String, String> header = handleCurl(curl);
-
-        ArrayList<VideoObject> listVideo = new ArrayList<>();
-
-        //Lấy url request
-        //Lặp cho đến khi không còn video nào nữa
-        String linkReq = header.get("URL");
-        header.remove("URL");
-        long next_cursor = 0;
-        long pre_cursor = 0;
-        boolean has_more = true;
-        while (has_more) {
-            try {
-                URL url = new URL(linkReq);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("GET");
-                for (Map.Entry<String, String> entry : header.entrySet()) {
-                    String key = entry.getKey();
-                    String value = entry.getValue();
-                    conn.setRequestProperty(key, value);
-                }
-
-                //int resCode = conn.getResponseCode();
-                //                        if (resCode != 200) {
-                //                            return;
-                //                        }
-                BufferedReader bf = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                StringBuilder respone = new StringBuilder();
-                String inputLine;
-                while ((inputLine = bf.readLine()) != null) {
-                    respone.append(inputLine);
-                }
-
-                JSONObject resJson = new JSONObject(respone.toString());
-
-                JSONArray resArrJson = resJson.getJSONArray("aweme_list");
-                for (int i = 0; i < resArrJson.length(); i++) {
-                    JSONObject videoObject = resArrJson.getJSONObject(i);
-
-                    //Lấy link download video
-                    JSONObject videoObj = videoObject.getJSONObject("video");
-                    JSONObject addrObj = videoObj.getJSONObject("download_addr");
-                    JSONArray urlArr = addrObj.getJSONArray("url_list");
-                    String urlDownload = (urlArr.getString(0)).replaceAll("watermark=1", "watermark=0");
-
-                    JSONObject infoVideo = videoObject.getJSONObject("statistics");
-                    int heartNums = infoVideo.getInt("digg_count");
-                    int shareNums = infoVideo.getInt("share_count");
-                    int cmtNums = infoVideo.getInt("comment_count");
-
-                    String decs = videoObject.getString("desc");
-
-                    JSONObject imgLink = videoObj.getJSONObject("origin_cover");
-                    JSONArray urlImgList = imgLink.getJSONArray("url_list");
-                    String urlImg = urlImgList.getString(0);
-                    urlImg = urlImg.substring(0, urlImg.lastIndexOf("?"));
-                    ImageIcon imgVideoPre = downloadImagePreviewVideo(urlImg);
-
-                    String finalLinkDownload = getFinalLinkDownload(urlDownload);
-
-                    VideoObject vdObj = new VideoObject(finalLinkDownload, heartNums, shareNums, cmtNums, decs, imgVideoPre);
-                    listVideo.add(vdObj);
-                }
-                next_cursor = resJson.getLong("max_cursor");
-                has_more = resJson.getBoolean("has_more");
-                linkReq = linkReq.replaceAll("max_cursor=" + String.valueOf(pre_cursor), "max_cursor=" + String.valueOf(next_cursor));
-                pre_cursor = next_cursor;
-
-            } catch (MalformedURLException ex) {
-
-            } catch (IOException ex) {
-
-            }
-        }
-
-        labelStatus.setText("G e t     L i n k     S u c c e s s ! ! !");
-        return listVideo;
-    }
-
-    //Lấy link download cuối cùng có thể xem được
-    private String getFinalLinkDownload(String urlV) {
-        String finalLinkdownload;
-        try {
-            URL url = new URL(urlV);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setReadTimeout(30000);
-            conn.setRequestMethod("GET");
-            conn.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9");
-            conn.setRequestProperty("Accept-Encoding", "gzip, deflate");
-            conn.setRequestProperty("Accept-Language", "en-GB,en;q=0.9,en-US;q=0.8");
-            conn.setRequestProperty("Cache-Control", "no-cache");
-            conn.setRequestProperty("Connection", "keep-alive");
-            conn.setRequestProperty("Host", "v16-byteoversea.muscdn.com");
-            conn.setRequestProperty("Pragma", "no-cache");
-            conn.setRequestProperty("Upgrade-Insecure-Requests", "1");
-            conn.setRequestProperty("Connection", "keep-alive");
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.149 Mobile Safari/537.36");
-            BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-            Map<String, List<String>> map = conn.getHeaderFields();
-//            for (Map.Entry<String, List<String>> entry : map.entrySet()) {
-//                String key = entry.getKey();
-//                List<String> value = entry.getValue();
-//                System.out.println(key+":"+value);
-//            }
-            finalLinkdownload = map.get("location").get(0);
-            return finalLinkdownload;
-        } catch (MalformedURLException ex) {
-            return null;
-        } catch (IOException ex) {
-
-        }
-        return null;
-    }
-
-    private ImageIcon downloadImagePreviewVideo(String urlImg) {
-        ImageIcon image = null;
-        try {
-            URL url = new URL(urlImg);
-            BufferedImage c = ImageIO.read(url);
-            image = new ImageIcon(c);
-            return image;
-        } catch (MalformedURLException ex) {
-            return null;
-        } catch (IOException ex) {
-
-        }
-        return image;
     }
 
     //tSave = true : Save video với tên theo mô tả
@@ -279,6 +149,7 @@ public class DouyinDownloaderFrame extends javax.swing.JFrame {
     // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
 
+        jLabel5 = new javax.swing.JLabel();
         jSplitPane1 = new javax.swing.JSplitPane();
         panel_main = new javax.swing.JPanel();
         jLabel2 = new javax.swing.JLabel();
@@ -293,8 +164,10 @@ public class DouyinDownloaderFrame extends javax.swing.JFrame {
         jButton2 = new javax.swing.JButton();
         jButton3 = new javax.swing.JButton();
         panel_Status = new javax.swing.JPanel();
-        scollPanel_Video = new javax.swing.JScrollPane();
-        panel_Video = new javax.swing.JPanel();
+        scollPanel_video = new javax.swing.JScrollPane();
+        panel_video = new javax.swing.JPanel();
+
+        jLabel5.setText("jLabel5");
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
         setMaximumSize(new java.awt.Dimension(900, 600));
@@ -428,33 +301,22 @@ public class DouyinDownloaderFrame extends javax.swing.JFrame {
 
         jSplitPane1.setLeftComponent(panel_main);
 
-        scollPanel_Video.setBackground(new java.awt.Color(39, 59, 79));
-        scollPanel_Video.setBorder(null);
-        scollPanel_Video.setPreferredSize(new java.awt.Dimension(0, 0));
+        panel_video.setBackground(new java.awt.Color(44, 62, 80));
 
-        panel_Video.setBackground(new java.awt.Color(39, 59, 79));
-        panel_Video.setMaximumSize(new java.awt.Dimension(0, 0));
-        panel_Video.setPreferredSize(new java.awt.Dimension(0, 0));
-        panel_Video.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
-            public void mouseMoved(java.awt.event.MouseEvent evt) {
-                panel_VideoMouseMoved(evt);
-            }
-        });
-
-        javax.swing.GroupLayout panel_VideoLayout = new javax.swing.GroupLayout(panel_Video);
-        panel_Video.setLayout(panel_VideoLayout);
-        panel_VideoLayout.setHorizontalGroup(
-            panel_VideoLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGap(0, 0, Short.MAX_VALUE)
+        javax.swing.GroupLayout panel_videoLayout = new javax.swing.GroupLayout(panel_video);
+        panel_video.setLayout(panel_videoLayout);
+        panel_videoLayout.setHorizontalGroup(
+            panel_videoLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGap(0, 896, Short.MAX_VALUE)
         );
-        panel_VideoLayout.setVerticalGroup(
-            panel_VideoLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGap(0, 0, Short.MAX_VALUE)
+        panel_videoLayout.setVerticalGroup(
+            panel_videoLayout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGap(0, 499, Short.MAX_VALUE)
         );
 
-        scollPanel_Video.setViewportView(panel_Video);
+        scollPanel_video.setViewportView(panel_video);
 
-        jSplitPane1.setRightComponent(scollPanel_Video);
+        jSplitPane1.setRightComponent(scollPanel_video);
 
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
         getContentPane().setLayout(layout);
@@ -482,15 +344,16 @@ public class DouyinDownloaderFrame extends javax.swing.JFrame {
     }// </editor-fold>//GEN-END:initComponents
 
     private void jButton1ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton1ActionPerformed
-        labelStatus.setText("G e t     L i n k     L o a d i n g . . . ! ! !");
-        panel_Status.setVisible(true);
-        resetPanel(panel_Status);
-        getLink();
+//        labelStatus.setText("G e t     L i n k     L o a d i n g . . . ! ! !");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                getLink();
+            }
+        }).start();
+//        panel_Status.setVisible(true);
+//        resetPanel(panel_Status);
     }//GEN-LAST:event_jButton1ActionPerformed
-
-    private void panel_VideoMouseMoved(java.awt.event.MouseEvent evt) {//GEN-FIRST:event_panel_VideoMouseMoved
-        // TODO add your handling code here:
-    }//GEN-LAST:event_panel_VideoMouseMoved
 
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
@@ -501,11 +364,12 @@ public class DouyinDownloaderFrame extends javax.swing.JFrame {
     private javax.swing.JLabel jLabel2;
     private javax.swing.JLabel jLabel3;
     private javax.swing.JLabel jLabel4;
+    private javax.swing.JLabel jLabel5;
     private javax.swing.JSplitPane jSplitPane1;
     private javax.swing.JPanel panel_Status;
-    private javax.swing.JPanel panel_Video;
     private javax.swing.JPanel panel_main;
-    private javax.swing.JScrollPane scollPanel_Video;
+    private javax.swing.JPanel panel_video;
+    private javax.swing.JScrollPane scollPanel_video;
     private javax.swing.JSpinner spinner_comment;
     private javax.swing.JSpinner spinner_heart;
     private javax.swing.JSpinner spinner_share;
